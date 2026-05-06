@@ -1,0 +1,23 @@
+# Entorno virtual
+env/
+.venv/
+venv/
+
+# Base de datos local
+*.db
+
+# Streamlit cache
+.streamlit/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Uploads temporales
+*.xlsx
+*.xls
