@@ -386,7 +386,7 @@ def generar_mensaje(df: pd.DataFrame, fecha: str, horario: str) -> tuple[str, di
         responsable = get_responsable(r.get("region", "RM"))
         lineas.append("📍 *RM (Santiago)*")
         if responsable:
-            lineas.append(f"{responsable}")
+            lineas.append(f"Responsables: {responsable}")
         lineas.append(
             f"Dato: DT {fmt_num(r.get('dt'))} mins | "
             f"% Late Orders {fmt_pct(r.get('pct_late'))} | "
@@ -430,7 +430,7 @@ def generar_mensaje(df: pd.DataFrame, fecha: str, horario: str) -> tuple[str, di
             r = row.to_dict()
             reg_nombre = str(r.get("region", f"Región {i}")).strip()
             responsable = get_responsable(reg_nombre)
-            resp_str = f"\n{responsable}" if responsable else ""
+            resp_str = f"\nResponsable: {responsable}" if responsable else ""
             lineas.append(f"{i}. 🏭 *{reg_nombre}*{resp_str}")
             lineas.append(
                 f"Dato: DT {fmt_num(r.get('dt'))} mins | "
@@ -455,181 +455,15 @@ def generar_mensaje(df: pd.DataFrame, fecha: str, horario: str) -> tuple[str, di
 
 # ─── UI STREAMLIT ─────────────────────────────────────────────────────────────
 
-def estilo_css():
-    st.markdown("""
-    <style>
-    @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@300;400;600;700&display=swap');
-
-    html, body, [class*="css"] {
-        font-family: 'IBM Plex Sans', sans-serif;
-    }
-    .stApp {
-        background: #0d0f14;
-        color: #e8eaf0;
-    }
-    .block-container {
-        padding-top: 2rem;
-    }
-
-    /* Sidebar */
-    [data-testid="stSidebar"] {
-        background: #111318 !important;
-        border-right: 1px solid #1e2130;
-    }
-    [data-testid="stSidebar"] .stMarkdown h2,
-    [data-testid="stSidebar"] .stMarkdown h3 {
-        color: #f97316;
-        font-family: 'IBM Plex Mono', monospace;
-        font-size: 0.85rem;
-        letter-spacing: 0.12em;
-        text-transform: uppercase;
-    }
-
-    /* Títulos */
-    h1 {
-        font-family: 'IBM Plex Mono', monospace !important;
-        color: #f97316 !important;
-        font-size: 1.6rem !important;
-        letter-spacing: -0.02em;
-        border-bottom: 2px solid #f97316;
-        padding-bottom: 0.5rem;
-        margin-bottom: 1.5rem !important;
-    }
-    h2 {
-        font-family: 'IBM Plex Sans', sans-serif !important;
-        color: #e8eaf0 !important;
-        font-size: 1.1rem !important;
-        font-weight: 600;
-    }
-    h3 {
-        color: #94a3b8 !important;
-        font-size: 0.9rem !important;
-        font-weight: 400;
-        text-transform: uppercase;
-        letter-spacing: 0.08em;
-    }
-
-    /* Botones */
-    .stButton > button {
-        background: #f97316 !important;
-        color: #0d0f14 !important;
-        border: none !important;
-        font-family: 'IBM Plex Mono', monospace !important;
-        font-weight: 600 !important;
-        letter-spacing: 0.05em;
-        border-radius: 4px !important;
-        transition: all 0.15s ease;
-    }
-    .stButton > button:hover {
-        background: #fb923c !important;
-        transform: translateY(-1px);
-        box-shadow: 0 4px 12px rgba(249,115,22,0.35) !important;
-    }
-
-    /* Textarea del mensaje */
-    .stTextArea textarea {
-        background: #111318 !important;
-        color: #e8eaf0 !important;
-        border: 1px solid #1e2130 !important;
-        font-family: 'IBM Plex Mono', monospace !important;
-        font-size: 0.82rem !important;
-        border-radius: 6px !important;
-    }
-    .stTextArea textarea:focus {
-        border-color: #f97316 !important;
-        box-shadow: 0 0 0 2px rgba(249,115,22,0.2) !important;
-    }
-
-    /* Métricas */
-    [data-testid="stMetric"] {
-        background: #111318;
-        border: 1px solid #1e2130;
-        border-radius: 8px;
-        padding: 0.75rem 1rem;
-    }
-    [data-testid="stMetricLabel"] {
-        color: #64748b !important;
-        font-size: 0.75rem !important;
-        font-family: 'IBM Plex Mono', monospace !important;
-        text-transform: uppercase;
-        letter-spacing: 0.08em;
-    }
-    [data-testid="stMetricValue"] {
-        color: #f97316 !important;
-        font-family: 'IBM Plex Mono', monospace !important;
-        font-size: 1.4rem !important;
-    }
-
-    /* Tablas */
-    [data-testid="stDataFrame"] {
-        border: 1px solid #1e2130;
-        border-radius: 8px;
-        overflow: hidden;
-    }
-
-    /* Alertas */
-    .stAlert {
-        border-radius: 6px !important;
-    }
-
-    /* Tabs */
-    .stTabs [data-baseweb="tab-list"] {
-        background: #111318;
-        border-bottom: 1px solid #1e2130;
-        gap: 0;
-    }
-    .stTabs [data-baseweb="tab"] {
-        color: #64748b !important;
-        font-family: 'IBM Plex Mono', monospace !important;
-        font-size: 0.8rem !important;
-        text-transform: uppercase;
-        letter-spacing: 0.08em;
-        padding: 0.6rem 1.2rem !important;
-    }
-    .stTabs [aria-selected="true"] {
-        color: #f97316 !important;
-        border-bottom: 2px solid #f97316 !important;
-    }
-
-    /* Divider */
-    hr {
-        border-color: #1e2130 !important;
-    }
-
-    /* Badge horario */
-    .badge-horario {
-        display: inline-block;
-        background: rgba(249,115,22,0.15);
-        color: #f97316;
-        border: 1px solid rgba(249,115,22,0.4);
-        border-radius: 20px;
-        padding: 2px 12px;
-        font-family: 'IBM Plex Mono', monospace;
-        font-size: 0.8rem;
-        font-weight: 600;
-        letter-spacing: 0.06em;
-    }
-    .kpi-card {
-        background: #111318;
-        border: 1px solid #1e2130;
-        border-left: 3px solid #f97316;
-        border-radius: 6px;
-        padding: 0.8rem 1rem;
-        margin-bottom: 0.5rem;
-    }
-    .region-header {
-        font-family: 'IBM Plex Mono', monospace;
-        color: #f97316;
-        font-weight: 600;
-        font-size: 0.85rem;
-        letter-spacing: 0.05em;
-        margin-bottom: 0.3rem;
-    }
-    </style>
-    """, unsafe_allow_html=True)
-
 
 def render_sidebar():
+    st.sidebar.markdown(
+        """<div style="text-align:center; padding: 0.5rem 0 1rem 0;">
+        <img src="https://pedidosya.dhmedia.io/image/pedidosya/fenix/images/logos/Logo.svg"
+             width="140" style="display:block; margin: 0 auto;"/>
+        </div>""",
+        unsafe_allow_html=True
+    )
     st.sidebar.markdown("## ⚙️ Configuración")
     st.sidebar.markdown("---")
 
@@ -722,7 +556,6 @@ def main():
         initial_sidebar_state="expanded"
     )
 
-    estilo_css()
     init_db()
 
     # Sidebar
