@@ -413,14 +413,11 @@ def generar_mensaje(df: pd.DataFrame, fecha: str, horario: str) -> tuple[str, di
             continue
         try:
             dt_val = float(row.get("dt", 0) or 0)
-            pct_late_val = float(row.get("pct_late", 0) or 0)
-            if pct_late_val <= 1.0:
-                pct_late_val *= 100
-            score = (dt_val / THRESHOLD_DT) + (pct_late_val / 100)
         except (TypeError, ValueError):
-            score = 0
-        otras.append((score, row))
+            dt_val = 0
+        otras.append((dt_val, row))
 
+    # Top 3 por mayor DT (columna L)
     otras.sort(key=lambda x: x[0], reverse=True)
     top3 = otras[:3]
 
