@@ -386,7 +386,7 @@ def generar_mensaje(df: pd.DataFrame, fecha: str, horario: str) -> tuple[str, di
         responsable = get_responsable(r.get("region", "RM"))
         lineas.append("📍 *RM (Santiago)*")
         if responsable:
-            lineas.append(f"Responsables: {responsable}")
+            lineas.append(f"{responsable}")
         lineas.append(
             f"Dato: DT {fmt_num(r.get('dt'))} mins | "
             f"% Late Orders {fmt_pct(r.get('pct_late'))} | "
@@ -427,7 +427,7 @@ def generar_mensaje(df: pd.DataFrame, fecha: str, horario: str) -> tuple[str, di
             r = row.to_dict()
             reg_nombre = str(r.get("region", f"Región {i}")).strip()
             responsable = get_responsable(reg_nombre)
-            resp_str = f"\nResponsable: {responsable}" if responsable else ""
+            resp_str = f"\n{responsable}" if responsable else ""
             lineas.append(f"{i}. 🏭 *{reg_nombre}*{resp_str}")
             lineas.append(
                 f"Dato: DT {fmt_num(r.get('dt'))} mins | "
