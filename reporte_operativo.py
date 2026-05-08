@@ -26,23 +26,29 @@ HORARIO_EMOJI = {
 
 # Columnas esperadas del Excel (C2:AH38 → fila 2 = encabezados)
 # Mapeamos nombres de columna a claves internas normalizadas
-COL_MAP = {
-    # Ajusta estos nombres según los encabezados reales de tu Excel de Tableau
+# Columnas que se mapean por coincidencia EXACTA (no substring)
+COL_EXACT = {
+    "City Name":           "region",
+    "City":                "region",
     "Region":              "region",
     "Zona":                "region",
-    "City":                "region",
-    "DT":                  "dt",
+    "DT (mins)":           "dt",
     "Delivery Time":       "dt",
     "% Late Orders":       "pct_late",
-    "Late Orders":         "pct_late",
-    "% FR":                "pct_fr",
-    "FR":                  "pct_fr",
+    "% Fail Rate":         "pct_fr",
     "UTR":                 "utr",
     "At Vendor Time":      "at_vendor",
     "Rider Accepting Time":"rider_accepting",
     "Hold Back Time":      "hold_back",
     "Responsable":         "responsable",
     "Responsible":         "responsable",
+}
+
+# Fallback por substring (solo para nombres sin ambigüedad)
+COL_MAP = {
+    "Late Orders":         "pct_late",
+    "% FR":                "pct_fr",
+    "FR":                  "pct_fr",
 }
 
 THRESHOLD_DT = 33.0  # umbral de gestión en minutos
@@ -177,35 +183,37 @@ _SENTINEL_RESERVED = {
 
 def normalizar_columnas(df: pd.DataFrame, skip_sentinels: list = None) -> pd.DataFrame:
     """
-    Renombra columnas del Excel al esquema interno via COL_MAP.
-    - Solo la PRIMERA columna que coincide toma el nombre interno.
-    - Columnas sin mapeo o duplicadas se nombran _col_N y luego se eliminan.
-    - skip_sentinels: lista de nombres de columna ya asignados por posicion fija;
-      se preservan intactos y sus claves internas quedan bloqueadas en COL_MAP.
+    Renombra columnas del Excel al esquema interno.
+    - Primero intenta match EXACTO via COL_EXACT (evita falsos positivos como PDT→dt).
+    - Luego intenta match por substring via COL_MAP para nombres alternativos.
+    - Solo la primera columna que toma un nombre interno lo conserva.
+    - Columnas sin mapeo se descartan (_col_N).
     """
-    skip_sentinels = skip_sentinels or []
-
-    # Bloquear claves internas que ya estan cubiertas por sentinels
-    claves_asignadas: set = {
-        _SENTINEL_RESERVED[s] for s in skip_sentinels if s in _SENTINEL_RESERVED
-    }
-
+    claves_asignadas: set = set()
     nuevos_nombres = []
     contador_sin_clave = 0
 
     for col in df.columns:
-        if col in skip_sentinels:
-            nuevos_nombres.append(col)
-            continue
-
         col_str = str(col).strip()
         asignado = False
-        for key, val in COL_MAP.items():
-            if key.lower() in col_str.lower() and val not in claves_asignadas:
+
+        # 1. Match exacto (case-insensitive)
+        for key, val in COL_EXACT.items():
+            if col_str.lower() == key.lower() and val not in claves_asignadas:
                 nuevos_nombres.append(val)
                 claves_asignadas.add(val)
                 asignado = True
                 break
+
+        # 2. Fallback: match por substring
+        if not asignado:
+            for key, val in COL_MAP.items():
+                if key.lower() in col_str.lower() and val not in claves_asignadas:
+                    nuevos_nombres.append(val)
+                    claves_asignadas.add(val)
+                    asignado = True
+                    break
+
         if not asignado:
             nuevos_nombres.append(f"_col_{contador_sin_clave}")
             contador_sin_clave += 1
@@ -217,47 +225,18 @@ def normalizar_columnas(df: pd.DataFrame, skip_sentinels: list = None) -> pd.Dat
 
 def leer_excel(uploaded_file) -> pd.DataFrame:
     """
-    Lee C2:AH38 del primer sheet.
-    - Fila 2 = encabezados.
-    - Columna J (indice absoluto 9, base-1) = Fail Rate (pct_fr), asignada por posicion fija.
-    - El resto de columnas se normalizan por nombre via COL_MAP.
+    Lee el Excel de Tableau (City KPIs).
+    - header=1  : fila 2 del Excel = encabezados (índice 1, base 0)
+    - Sin usecols: el Excel empieza en columna A (no C como se asumía antes)
+    - Las columnas clave se mapean por nombre real via COL_MAP
     """
-    # Leer hoja completa con encabezados para tener acceso a columna J por nombre real
     df_full = pd.read_excel(
         uploaded_file,
-        header=1,       # fila 2 del Excel (0-indexed: fila index 1) = encabezados
-        usecols="C:AH",
-        nrows=36,       # filas 3-38 = 36 filas de datos
+        header=1,   # fila 2 = encabezados
+        nrows=38,   # margen amplio; dropna elimina vacías
     )
     df_full = df_full.dropna(how="all")
-
-    # Posiciones fijas dentro del rango C:AH (C=0, D=1, ..., J=7, K=8, L=9)
-    # Posiciones fijas dentro del rango C:AH (C=0, D=1, ... J=7, L=9, ... AG=30)
-    COL_IDX_FR            = 7   # Columna J  = Fail Rate
-    COL_IDX_DT            = 9   # Columna L  = Delivery Time (DT)
-    COL_IDX_RIDER         = 29  # Columna AF = Rider Accepting Time
-    cols = list(df_full.columns)
-
-    SENTINEL_FR    = "__pct_fr_fixed__"
-    SENTINEL_DT    = "__dt_fixed__"
-    SENTINEL_RIDER = "__rider_accepting_fixed__"
-
-    if COL_IDX_FR    < len(cols): cols[COL_IDX_FR]    = SENTINEL_FR
-    if COL_IDX_DT    < len(cols): cols[COL_IDX_DT]    = SENTINEL_DT
-    if COL_IDX_RIDER < len(cols): cols[COL_IDX_RIDER]  = SENTINEL_RIDER
-    df_full.columns = cols
-
-    # Normalizar el resto por nombre, preservando sentinels
-    df_full = normalizar_columnas(df_full, skip_sentinels=[SENTINEL_FR, SENTINEL_DT, SENTINEL_RIDER])
-
-    # Renombrar sentinels a claves internas
-    rename_map = {}
-    if SENTINEL_FR    in df_full.columns: rename_map[SENTINEL_FR]    = "pct_fr"
-    if SENTINEL_DT    in df_full.columns: rename_map[SENTINEL_DT]    = "dt"
-    if SENTINEL_RIDER in df_full.columns: rename_map[SENTINEL_RIDER] = "rider_accepting"
-    if rename_map:
-        df_full = df_full.rename(columns=rename_map)
-
+    df_full = normalizar_columnas(df_full)
     return df_full
 
 
@@ -296,37 +275,37 @@ def diagnosticar(row: dict, es_nacional: bool = False) -> str:
 
     # Estado general
     if dt >= THRESHOLD_DT:
-        frases.append(f"Supera el umbral de gestión de {THRESHOLD_DT:.0f} min.")
+        frases.append(f"Se encuentra por sobre el nivel de seguimiento ({THRESHOLD_DT:.0f} min).")
     elif dt >= 30:
-        frases.append(f"En alerta preventiva (bajo {THRESHOLD_DT:.0f} min).")
+        frases.append(f"Se encuentra en nivel de seguimiento preventivo (bajo {THRESHOLD_DT:.0f} min).")
     else:
         frases.append("Opera en rangos saludables.")
 
     # Cuellos de botella
     cuellos = []
     if hold_back >= 15:
-        cuellos.append(f"Hold Back Time elevado ({hold_back:.1f} min) como principal retención pre-despacho")
+        cuellos.append(f"Hold Back Time elevado ({hold_back:.1f} min)")
     if at_vendor >= 10:
-        cuellos.append(f"latencia en Tienda ({at_vendor:.1f} min)")
+        cuellos.append(f"tiempo en partners ({at_vendor:.1f} min)")
     if rider_acc >= 10:
-        cuellos.append(f"tiempo de respuesta de flota alto ({rider_acc:.1f} min)")
+        cuellos.append(f"tiempo de aceptación de flota elevado ({rider_acc:.1f} min)")
 
     if cuellos:
-        frases.append("Se identifican: " + ", ".join(cuellos) + ".")
+        frases.append("Factores a revisar: " + ", ".join(cuellos) + ".")
 
     # UTR
     if utr < 1.2:
         frases.append(f"UTR bajo ({utr:.2f}) sugiere exceso de flota para el volumen actual.")
     elif utr > 2.0:
-        frases.append(f"UTR elevado ({utr:.2f}) indica alta productividad de flota.")
+        frases.append(f"UTR elevado ({utr:.2f}) refleja alta utilización de flota.")
 
     # Late orders
     if pct_late >= 25:
-        frases.append(f"Alta proporción de órdenes tardías ({pct_late:.1f}%), impacto directo en experiencia.")
+        frases.append(f"Proporción de órdenes con retraso elevada ({pct_late:.1f}%), con posible impacto en experiencia.")
     elif pct_late >= 15:
-        frases.append(f"Órdenes tardías ({pct_late:.1f}%) sobre el umbral objetivo.")
+        frases.append(f"Órdenes con retraso ({pct_late:.1f}%) sobre el objetivo.")
 
-    return " ".join(frases) if frases else "Sin datos suficientes para diagnóstico automático."
+    return " ".join(frases) if frases else "Sin datos suficientes para análisis."
 
 
 # ─── GENERADOR DE MENSAJE ─────────────────────────────────────────────────────
@@ -341,7 +320,7 @@ def generar_mensaje(df: pd.DataFrame, fecha: str, horario: str) -> tuple[str, di
     datos_guardados = {"fecha": fecha, "horario": horario, "regiones": []}
 
     # ── Encabezado ──
-    lineas.append(f"📊 *Reporte Operativo: Status {horario}*")
+    lineas.append(f"📊 Reporte Operativo: Status {horario}")
     lineas.append(f"📅 Fecha: {fecha}")
     lineas.append("")
 
@@ -351,7 +330,7 @@ def generar_mensaje(df: pd.DataFrame, fecha: str, horario: str) -> tuple[str, di
 
     if nacional is not None:
         r = nacional.to_dict()
-        lineas.append("🇨🇱 *TOTAL CL (Resumen Nacional)*")
+        lineas.append("🇨🇱 TOTAL CL (Resumen Nacional)")
         lineas.append(
             f"Dato: DT {fmt_num(r.get('dt'))} mins | "
             f"% Late Orders {fmt_pct(r.get('pct_late'))} | "
@@ -384,7 +363,7 @@ def generar_mensaje(df: pd.DataFrame, fecha: str, horario: str) -> tuple[str, di
     if rm is not None:
         r = rm.to_dict()
         responsable = get_responsable(r.get("region", "RM"))
-        lineas.append("📍 *RM (Santiago)*")
+        lineas.append("📍 RM (Santiago)")
         if responsable:
             lineas.append(f"{responsable}")
         lineas.append(
@@ -422,13 +401,13 @@ def generar_mensaje(df: pd.DataFrame, fecha: str, horario: str) -> tuple[str, di
     top3 = otras[:3]
 
     if top3:
-        lineas.append("⚠️ *TOP 3 REGIONES (Zonas con Desviación de Flujo)*")
+        lineas.append("⚠️ TOP 3 REGIONES")
         for i, (_, row) in enumerate(top3, 1):
             r = row.to_dict()
             reg_nombre = str(r.get("region", f"Región {i}")).strip()
             responsable = get_responsable(reg_nombre)
             resp_str = f"\n{responsable}" if responsable else ""
-            lineas.append(f"{i}. 🏭 *{reg_nombre}*{resp_str}")
+            lineas.append(f"{i}. 🏭 {reg_nombre}{resp_str}")
             lineas.append(
                 f"Dato: DT {fmt_num(r.get('dt'))} mins | "
                 f"🕒 % Late Orders {fmt_pct(r.get('pct_late'))} | "
